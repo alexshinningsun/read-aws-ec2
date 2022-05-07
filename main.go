@@ -26,7 +26,7 @@ func main() {
 	var r2 *ec2.DescribeSecurityGroupsOutput
 	var r3 *ec2.DescribeKeyPairsOutput
 
-	sess, err := newSess(cre, endpoints.ApEast1RegionID) // hard coded to Ap-East-1 Region, more detail plz check https://docs.aws.amazon.com/sdk-for-go/api/aws/endpoints/
+	sess, err := newSess(cre, endpoints.ApEast1RegionID) // hard coded to Ap-East1 Region, more detail plz check https://docs.aws.amazon.com/sdk-for-go/api/aws/endpoints/
 	if err != nil {
 		goto responseError
 	}
