@@ -2,91 +2,66 @@ package main
 
 import (
 	"fmt"
-	"log"
 
-	"github.com/gin-gonic/gin"
-	"github.com/kelseyhightower/envconfig"
-
-	"github.com/mysam123/fyp/backend/internal/auth"
-	aws "github.com/mysam123/fyp/backend/internal/aws"
-	azure "github.com/mysam123/fyp/backend/internal/azure"
-	"github.com/mysam123/fyp/backend/internal/kubehunter"
-
-	//joseph: imported gcp package
-	K8SCompliance "github.com/mysam123/fyp/backend/internal/K8S-compliance"
-	"github.com/mysam123/fyp/backend/internal/database"
-	"github.com/mysam123/fyp/backend/internal/elasticsearch"
-	"github.com/mysam123/fyp/backend/internal/engine"
-	gcp "github.com/mysam123/fyp/backend/internal/gcp"
-	"github.com/mysam123/fyp/backend/internal/healthcheck"
-	"github.com/mysam123/fyp/backend/internal/kubebench"
-	"github.com/mysam123/fyp/backend/internal/kubefetch"
-	"github.com/mysam123/fyp/backend/internal/kubelinter"
-	"github.com/mysam123/fyp/backend/internal/kubescore"
-	"github.com/mysam123/fyp/backend/internal/middleware"
-	"github.com/mysam123/fyp/backend/internal/project"
-	"github.com/mysam123/fyp/backend/internal/utils"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
-type environmentVariables struct {
-	Port             int
-	MongoURI         string `required:"true"`
-	DatabaseName     string `required:"true"`
-	DatabaseUsername string `envconfig:"DATABASE_USERNAME"`
-	DatabasePassword string `envconfig:"DATABASE_PASSWORD"`
-	JWTRealm         string `required:"true"`
-	JWTSecretKey     string `required:"true"`
+type cred struct {
+	user string //AWS_ACCESS_KEY_ID
+	pass string //AWS_SECRET_ACCESS_KEY
 }
 
 func main() {
-	var env = environmentVariables{Port: 3001}
-	if err := envconfig.Process("APP", &env); err != nil { // Extract env. variables fomr ./.env
-		panic(err)
+	cre := &cred{
+		user: "AWS_ACCESS_KEY_ID",
+		pass: "AWS_SECRET_ACCESS_KEY",
 	}
+	var ec2Svc *ec2.EC2
+	var r0 *ec2.DescribeRegionsOutput
+	var r1 *ec2.DescribeInstancesOutput
+	var r2 *ec2.DescribeSecurityGroupsOutput
+	var r3 *ec2.DescribeKeyPairsOutput
 
-	db, err := database.NewDatabase(env.MongoURI, env.DatabaseName, env.DatabaseUsername, env.DatabasePassword)
+	sess, err := newSess(cre, endpoints.ApEast1RegionID) // hard coded to Ap-East-1 Region, more detail plz check https://docs.aws.amazon.com/sdk-for-go/api/aws/endpoints/
 	if err != nil {
-		panic(err)
+		goto responseError
 	}
-	// TODO: need to add ==> defer db.Client.Disconnect(ctx) ?
-	router := gin.Default()
-
-	api := router.Group("")
-	{
-		healthcheck.NewService(api, "v0.0.1")
-		aws.NewService(api, db)
+	ec2Svc = ec2.New(sess)
+	r0, err = ec2Svc.DescribeRegions(nil)
+	if err != nil {
+		goto responseError
 	}
+	fmt.Println(r0)
 
-	v1 := api.Group("/api/v1")
-	{
-		v1.Use(middleware.Recovery())
-		healthcheck.NewService(v1, "v0.0.1")
-		aws.NewService(v1, db)
-		azure.NewService(v1, db)
-
-		//joseph:added API for google cloud platform
-		gcp.NewService(v1, db)
-
-		//joseph:added API for k8s fetchers
-		kubefetch.NewService(v1, db)
-
-		authService := auth.NewService(v1, db, env.JWTRealm, env.JWTSecretKey)
-		authorized := v1.Group("/", authService.Middleware.MiddlewareFunc())
-		{
-			engineService := engine.NewService(authorized, db, authService)
-			project.NewService(authorized, db, authService, engineService)
-			elasticsearch.NewService(authorized, db, authService)
-			kubescore.NewService(authorized, db)
-			kubebench.NewService(authorized, db)
-			kubelinter.NewService(authorized, db)
-			kubehunter.NewService(authorized, db)
-			K8SCompliance.NewService(authorized, db)
-		}
+	r1, err = ec2Svc.DescribeInstances(nil)
+	if err != nil {
+		goto responseError
 	}
-
-	if err := router.Run(fmt.Sprintf(":%d", env.Port)); err != nil {
-		log.Println("Unable to start: ", err)
+	fmt.Println(r1)
+	r2, err = ec2Svc.DescribeSecurityGroups(nil)
+	if err != nil {
+		goto responseError
 	}
-	// * containerize application is a stateless app. So we don't need to clean up data folder E.G. /tmp/RIC1-fyp
-	utils.RemoveFilesInDataFolder()
+	fmt.Println(r2)
+	r3, err = ec2Svc.DescribeKeyPairs(nil)
+	if err != nil {
+		goto responseError
+	}
+	fmt.Println(r3)
+	return
+responseError:
+	fmt.Println(err)
+	return
+}
+
+func newSess(c *cred, reg string) (*session.Session, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Credentials: credentials.NewStaticCredentials(c.user, c.pass, ""),
+		Region:      aws.String(reg),
+	})
+	return sess, err
 }
